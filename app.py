@@ -40,7 +40,7 @@ st.markdown("""
         letter-spacing: -0.8px;
     }
     
-    /* Tarjetas de Métricas Principales */
+    /* Métricas Principales */
     .kpi-container {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -69,7 +69,7 @@ st.markdown("""
     .kpi-val.gasto { color: #b42318; }
     .kpi-val.balance { color: #11261d; }
 
-    /* Tarjetas de Sección */
+    /* Contenedor de gráficos e insights */
     .clever-box {
         background: #ffffff;
         border-radius: 24px;
@@ -79,7 +79,6 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* Filas de categorías */
     .cat-row {
         display: flex;
         justify-content: space-between;
@@ -99,7 +98,6 @@ st.markdown("""
         margin-right: 8px;
     }
     
-    /* Insights Cards */
     .insight-card {
         background: #ffffff;
         border-radius: 18px;
@@ -135,7 +133,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=3)
+# 1. Función para eliminar transacciones de la Base de Datos
+def eliminar_transaccion(transaccion_id: int):
+    db = SessionLocal()
+    try:
+        registro = db.query(Transaccion).filter(Transaccion.id == transaccion_id).first()
+        if registro:
+            db.delete(registro)
+            db.commit()
+            st.success(f"✅ Transacción #{transaccion_id} eliminada con éxito.")
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.warning("No se encontró el registro seleccionado.")
+    except Exception as e:
+        st.error(f"Error al eliminar: {e}")
+    finally:
+        db.close()
+
+# 2. Cargar datos
+@st.cache_data(ttl=2)
 def cargar_datos():
     db = SessionLocal()
     try:
@@ -170,7 +187,7 @@ if df.empty:
     st.info("👋 Aún no tienes transacciones registradas. Envía tu primer mensaje o audio por Telegram.")
     st.stop()
 
-# Manejo de periodos mensuales
+# Manejo de meses
 df["fecha"] = pd.to_datetime(df["fecha"])
 df["mes_periodo"] = df["fecha"].dt.to_period("M")
 
@@ -190,7 +207,6 @@ df_mes = df[df["mes_periodo"] == mes_seleccionado]
 periodo_anterior = mes_seleccionado - 1
 df_mes_ant = df[df["mes_periodo"] == periodo_anterior]
 
-# Totales del mes
 gastos_mes = df_mes[df_mes["tipo"] == "Gasto"]["monto"].sum()
 ingresos_mes = df_mes[df_mes["tipo"] == "Ingreso"]["monto"].sum()
 balance_neto = ingresos_mes - gastos_mes
@@ -204,7 +220,7 @@ if gastos_mes_ant > 0:
 dias_del_mes = max(df_mes["fecha"].dt.day.max(), 1)
 gasto_diario_promedio = gastos_mes / dias_del_mes
 
-# --- 1. TARJETAS DE INGRESOS, GASTOS Y BALANCE ---
+# Métricas Principales
 st.markdown(f"""
 <div class="kpi-container">
     <div class="kpi-card">
@@ -222,7 +238,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 2. DISTRIBUCIÓN POR CATEGORÍAS & INSIGHTS ---
+# Sección Gráficos & Insights
 col_izq, col_der = st.columns([5, 4], gap="large")
 
 with col_izq:
@@ -312,10 +328,29 @@ with col_der:
     </div>
     """, unsafe_allow_html=True)
 
-# --- 3. HISTORIAL DE MOVIMIENTOS ---
+# Historial de Movimientos
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("### 📋 Movimientos del Mes")
 
-df_mostrar = df_mes[["fecha", "descripcion", "categoria", "tipo", "medio", "monto", "moneda"]].copy()
+df_mostrar = df_mes[["id", "fecha", "descripcion", "categoria", "tipo", "medio", "monto", "moneda"]].copy()
 df_mostrar["fecha"] = df_mostrar["fecha"].dt.strftime("%d/%m/%Y %H:%M")
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+
+# Sección para Eliminar Transacciones Erróneas
+with st.expander("🗑️ **Eliminar un importe equivocado**"):
+    st.write("Selecciona una transacción de la lista para eliminarla permanentemente de la base de datos:")
+    
+    opciones_dict = {
+        f"ID #{row['id']} | {row['fecha']} | {row['tipo']}: {row['descripcion']} - S/ {row['monto']:,.2f}": row['id']
+        for _, row in df_mostrar.iterrows()
+    }
+    
+    if opciones_dict:
+        seleccion_label = st.selectbox("Movimiento a eliminar:", options=list(opciones_dict.keys()))
+        col_btn1, col_btn2 = st.columns([2, 5])
+        with col_btn1:
+            if st.button("🗑️ Eliminar Registro", type="primary", use_container_width=True):
+                id_seleccionado = opciones_dict[seleccion_label]
+                eliminar_transaccion(id_seleccionado)
+    else:
+        st.write("No hay movimientos registrados en este mes.")
