@@ -1,6 +1,7 @@
 import os
 import json
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,16 +9,16 @@ load_dotenv()
 def procesar_mensaje_con_gemini(texto: str):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("❌ Error: GEMINI_API_KEY no encontrada en las variables de entorno.")
+        print("❌ GEMINI_API_KEY no encontrada.")
         return None
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     prompt = f"""
-    Eres un asistente contable. Analiza el siguiente texto de un gasto, ingreso o notificación bancaria en Perú (BCP, Yape, Plin, efectivo):
+    Eres un asistente contable. Analiza el siguiente texto de un gasto, ingreso o notificación bancaria en Perú:
     "{texto}"
 
-    Extrae los datos y responde ÚNICAMENTE un JSON con esta estructura exacta:
+    Devuelve ÚNICAMENTE un objeto JSON con este formato:
     {{
         "amount": 0.0,
         "currency": "PEN",
@@ -28,25 +29,25 @@ def procesar_mensaje_con_gemini(texto: str):
     }}
     """
 
-    modelos = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-pro",
-        "gemini-pro"
-    ]
+    modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
-    for model_name in modelos:
+    for m in modelos:
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            texto_limpio = response.text.strip().replace("```json", "").replace("```", "").strip()
-            datos = json.loads(texto_limpio)
-            print(f"✅ Procesado exitosamente con {model_name}")
-            return datos
+            response = client.models.generate_content(
+                model=m,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
+            )
+            if response.text:
+                texto_limpio = response.text.strip().replace("```json", "").replace("```", "").strip()
+                datos = json.loads(texto_limpio)
+                print(f"✅ Transacción procesada con {m}: {datos}")
+                return datos
         except Exception as e:
-            print(f"Aviso: Falló con {model_name} ({e}), intentando siguiente modelo...")
+            print(f"Aviso: Falló con {m} ({e}), probando siguiente...")
             continue
 
-    print("❌ No se pudo conectar con ningún modelo de Gemini disponible.")
+    print("❌ No se pudo conectar con los modelos de Gemini.")
     return None
