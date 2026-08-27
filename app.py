@@ -16,100 +16,131 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilos visuales Clever (Verde & Blanco)
+# Forzar tema claro estilo Clever (#F8FAF9 y verdes)
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
     
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        background-color: #f7faf8;
-        color: #1a2e26;
+    .stApp {
+        background-color: #f6faf7 !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        color: #11261d !important;
     }
     
-    .clever-header {
+    /* Header */
+    .clever-top {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 10px 0 20px 0;
+        margin-bottom: 25px;
     }
     .clever-logo {
-        font-size: 30px;
+        font-size: 32px;
         font-weight: 800;
         color: #0b6836;
-        letter-spacing: -0.5px;
+        letter-spacing: -0.8px;
     }
     
-    .clever-card {
+    /* Contenedor tipo Tarjeta Clever */
+    .clever-box {
         background: #ffffff;
-        border-radius: 20px;
-        padding: 24px;
-        box-shadow: 0 4px 20px rgba(0, 50, 20, 0.04);
-        border: 1px solid #ebf2ee;
+        border-radius: 24px;
+        padding: 28px;
+        border: 1px solid #e7f0eb;
+        box-shadow: 0 4px 20px rgba(0, 40, 20, 0.03);
         margin-bottom: 20px;
     }
     
-    .kpi-title {
+    .kpi-label {
         font-size: 14px;
         font-weight: 600;
-        color: #6b7f75;
-        margin-bottom: 4px;
+        color: #6a8275;
+        margin-bottom: 6px;
     }
     
-    .kpi-amount {
-        font-size: 34px;
+    .kpi-main-number {
+        font-size: 38px;
         font-weight: 800;
-        color: #11261d;
-        margin: 0;
+        color: #0d2319;
+        line-height: 1.1;
     }
     
-    .badge-pill {
-        display: inline-block;
-        padding: 4px 12px;
+    .badge-clever {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 12px;
         border-radius: 20px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
-        background-color: #dcfce7;
-        color: #15803d;
-        margin-top: 6px;
+        background-color: #ddfbe8;
+        color: #0b7c3e;
+        margin-top: 10px;
     }
     
-    .badge-pill.negative {
-        background-color: #fee2e2;
-        color: #b91c1c;
+    .badge-clever.up {
+        background-color: #fee4e2;
+        color: #b42318;
+    }
+
+    /* Filas de la lista de categorías al lado de la dona */
+    .cat-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        border-radius: 12px;
+        margin-bottom: 6px;
+        background: #fbfdfc;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .cat-bullet {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
     }
     
-    .insight-row {
+    /* Tarjetas de Insights */
+    .insight-card {
         background: #ffffff;
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 16px 20px;
-        border: 1px solid #edf3ef;
+        border: 1px solid #e7f0eb;
         margin-bottom: 12px;
         display: flex;
         align-items: center;
         gap: 16px;
     }
-    .insight-icon {
-        background: #eef9f2;
+    .insight-icon-box {
+        background: #ebf9f0;
         font-size: 22px;
-        padding: 10px;
-        border-radius: 12px;
+        padding: 12px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
-    .insight-text-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: #2bb673;
-        margin-bottom: 2px;
-    }
-    .insight-text-desc {
-        font-size: 15px;
+    .insight-tag {
+        font-size: 11px;
         font-weight: 700;
-        color: #1b3528;
+        color: #2bb673;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+    .insight-desc {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1a3327;
+        margin-top: 2px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=5)
+# Cargar base de datos
+@st.cache_data(ttl=3)
 def cargar_datos():
     db = SessionLocal()
     try:
@@ -133,8 +164,9 @@ def cargar_datos():
 
 df = cargar_datos()
 
+# Encabezado estilo Clever
 st.markdown("""
-<div class="clever-header">
+<div class="clever-top">
     <div class="clever-logo">Clever <span style="font-size:16px; font-weight:600; color:#2bb673;">• Dashboard</span></div>
 </div>
 """, unsafe_allow_html=True)
@@ -143,23 +175,22 @@ if df.empty:
     st.info("👋 Aún no tienes transacciones registradas. Envía tu primer gasto por Telegram.")
     st.stop()
 
-# Manejo de meses
+# Manejo de fechas y meses
 df["fecha"] = pd.to_datetime(df["fecha"])
 df["mes_periodo"] = df["fecha"].dt.to_period("M")
 
 meses_disponibles = sorted(df["mes_periodo"].unique(), reverse=True)
 meses_nombres = {p: p.strftime("%B %Y").capitalize() for p in meses_disponibles}
 
-col_sel1, col_sel2 = st.columns([2, 4])
-with col_sel1:
+col_mes, _ = st.columns([3, 5])
+with col_mes:
     mes_seleccionado = st.selectbox(
-        "📅 **Filtrar por Mes:**",
+        "📅 **Periodo:**",
         options=meses_disponibles,
         format_func=lambda x: meses_nombres[x],
         index=0
     )
 
-# Filtrado por mes actual y anterior
 df_mes = df[df["mes_periodo"] == mes_seleccionado]
 periodo_anterior = mes_seleccionado - 1
 df_mes_ant = df[df["mes_periodo"] == periodo_anterior]
@@ -172,66 +203,81 @@ dif_porcentaje = 0.0
 if gastos_mes_ant > 0:
     dif_porcentaje = ((gastos_mes - gastos_mes_ant) / gastos_mes_ant) * 100
 
-dias_en_mes = df_mes["fecha"].dt.day.max() if not df_mes.empty else 1
-gasto_diario_promedio = gastos_mes / max(dias_en_mes, 1)
+dias_del_mes = max(df_mes["fecha"].dt.day.max(), 1)
+gasto_diario_promedio = gastos_mes / dias_del_mes
 
-# Estructura principal
-col_resumen, col_insights = st.columns([3, 2], gap="large")
+# --- PANEL PRINCIPAL: Resumen con Dona integrada & Insights ---
+col_izq, col_der = st.columns([5, 4], gap="large")
 
-with col_resumen:
+with col_izq:
     st.markdown(f"""
-    <div class="clever-card">
-        <div class="kpi-title">Resumen del mes ({meses_nombres[mes_seleccionado]})</div>
-        <div class="kpi-amount">S/ {gastos_mes:,.2f}</div>
+    <div class="clever-box">
+        <div class="kpi-label">Resumen del mes ({meses_nombres[mes_seleccionado]})</div>
+        <div class="kpi-main-number">S/ {gastos_mes:,.2f}</div>
         <div>
-            <span class="badge-pill {'negative' if dif_porcentaje > 0 else ''}">
+            <span class="badge-clever {'up' if dif_porcentaje > 0 else ''}">
                 {'⬆' if dif_porcentaje > 0 else '⬇'} {abs(dif_porcentaje):.1f}% vs. mes pasado
             </span>
         </div>
-        <div style="margin-top: 15px; font-size: 13px; color: #6b7f75;">
-            Gasto diario promedio: <strong style="color:#11261d;">S/ {gasto_diario_promedio:,.2f}</strong>
+        <div style="margin-top: 12px; font-size: 13px; color: #6a8275;">
+            Gasto diario promedio: <strong style="color: #11261d;">S/ {gasto_diario_promedio:,.2f}</strong>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
+    # Desglose de Donut + Lista de Categorías
     df_gastos = df_mes[df_mes["tipo"] == "Gasto"]
     if not df_gastos.empty:
         cat_data = df_gastos.groupby("categoria")["monto"].sum().reset_index()
+        cat_data["porcentaje"] = (cat_data["monto"] / gastos_mes) * 100
         cat_data = cat_data.sort_values(by="monto", ascending=False)
         
-        paleta_verde = ["#006837", "#00874e", "#2bb673", "#5cd094", "#8de4b5", "#bbf1d4"]
+        colores_hex = ["#006837", "#00874e", "#2bb673", "#5cd094", "#8de4b5", "#bbf1d4", "#d4f7e2"]
         
-        fig = px.pie(
-            cat_data,
-            values="monto",
-            names="categoria",
-            hole=0.65,
-            color_discrete_sequence=paleta_verde
-        )
-        fig.update_traces(
-            textposition='inside',
-            textinfo='percent',
-            hovertemplate="<b>%{label}</b><br>S/ %{value:,.2f}<br>(%{percent})<extra></extra>"
-        )
-        fig.update_layout(
-            showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
-            margin=dict(t=10, b=10, l=10, r=10),
-            height=320,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        c_chart, c_list = st.columns([5, 6])
+        with c_chart:
+            fig = px.pie(
+                cat_data,
+                values="monto",
+                names="categoria",
+                hole=0.68,
+                color_discrete_sequence=colores_hex
+            )
+            fig.update_traces(textinfo='none', hoverinfo='label+percent')
+            fig.update_layout(
+                showlegend=False,
+                margin=dict(t=0, b=0, l=0, r=0),
+                height=210,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with c_list:
+            for i, row in cat_data.iterrows():
+                color_bullet = colores_hex[i % len(colores_hex)]
+                st.markdown(f"""
+                <div class="cat-row">
+                    <div>
+                        <span class="cat-bullet" style="background-color: {color_bullet};"></span>
+                        <span style="color: #334e40;">{row['categoria']}</span>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="color: #8c9e94; font-size: 12px; margin-right: 8px;">{row['porcentaje']:.0f}%</span>
+                        <span style="color: #11261d;">S/ {row['monto']:,.2f}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
-with col_insights:
-    st.markdown('<div class="kpi-title" style="margin-bottom: 12px;">📊 Insights del Mes</div>', unsafe_allow_html=True)
+with col_der:
+    st.markdown('<div class="kpi-label" style="margin-bottom: 12px;">📊 Insights inteligentes</div>', unsafe_allow_html=True)
     
     st.markdown(f"""
-    <div class="insight-row">
-        <div class="insight-icon">📉</div>
+    <div class="insight-card">
+        <div class="insight-icon-box">📉</div>
         <div>
-            <div class="insight-text-title">Gastos del mes</div>
-            <div class="insight-text-desc">{'Llevas un ' + f"{abs(dif_porcentaje):.1f}% menos que el mes pasado." if dif_porcentaje <= 0 else 'Llevas un ' + f"{dif_porcentaje:.1f}% más que el mes pasado."}</div>
+            <div class="insight-tag">Gastos del mes</div>
+            <div class="insight-desc">{'Llevas un ' + f"{abs(dif_porcentaje):.1f}% menos que el mes pasado." if dif_porcentaje <= 0 else 'Llevas un ' + f"{dif_porcentaje:.1f}% más que el mes pasado."}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -240,29 +286,29 @@ with col_insights:
         top_cat = df_gastos["categoria"].value_counts().index[0]
         conteo_top = df_gastos["categoria"].value_counts().iloc[0]
         st.markdown(f"""
-        <div class="insight-row">
-            <div class="insight-icon">🛍️</div>
+        <div class="insight-card">
+            <div class="insight-icon-box">🛍️</div>
             <div>
-                <div class="insight-text-title">Categoría más frecuente</div>
-                <div class="insight-text-desc">Has hecho {conteo_top} transacciones en <strong>{top_cat}</strong>.</div>
+                <div class="insight-tag">Categoría más frecuente</div>
+                <div class="insight-desc">Has hecho {conteo_top} transacciones en <strong>{top_cat}</strong>.</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-    
+        
     proyeccion = gasto_diario_promedio * 30
     st.markdown(f"""
-    <div class="insight-row">
-        <div class="insight-icon">⏱️</div>
+    <div class="insight-card">
+        <div class="insight-icon-box">⏱️</div>
         <div>
-            <div class="insight-text-title">Proyección de gasto</div>
-            <div class="insight-text-desc">Gastarás aprox. <strong>S/ {proyeccion:,.2f}</strong> a fin de mes.</div>
+            <div class="insight-tag">Proyección de gasto</div>
+            <div class="insight-desc">Gastarás aprox. <strong>S/ {proyeccion:,.2f}</strong> a fin de mes.</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# Lista detallada de transacciones
+# Tabla de movimientos
 st.markdown("<br>", unsafe_allow_html=True)
-st.markdown("### 📋 Historial del Mes")
+st.markdown("### 📋 Movimientos del Mes")
 df_mostrar = df_mes[["fecha", "descripcion", "categoria", "tipo", "medio", "monto", "moneda"]].copy()
 df_mostrar["fecha"] = df_mostrar["fecha"].dt.strftime("%d/%m/%Y %H:%M")
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
