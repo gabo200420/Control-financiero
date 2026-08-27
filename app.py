@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Forzar tema claro estilo Clever (#F8FAF9 y verdes)
+# Estilos visuales Clever
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -27,12 +27,11 @@ st.markdown("""
         color: #11261d !important;
     }
     
-    /* Header */
     .clever-top {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
     }
     .clever-logo {
         font-size: 32px;
@@ -41,49 +40,46 @@ st.markdown("""
         letter-spacing: -0.8px;
     }
     
-    /* Contenedor tipo Tarjeta Clever */
+    /* Tarjetas de Métricas Principales */
+    .kpi-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .kpi-card {
+        background: #ffffff;
+        border-radius: 20px;
+        padding: 20px 24px;
+        border: 1px solid #e7f0eb;
+        box-shadow: 0 4px 16px rgba(0, 40, 20, 0.03);
+    }
+    .kpi-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #6a8275;
+        margin-bottom: 4px;
+    }
+    .kpi-val {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1.2;
+    }
+    .kpi-val.ingreso { color: #0b7c3e; }
+    .kpi-val.gasto { color: #b42318; }
+    .kpi-val.balance { color: #11261d; }
+
+    /* Tarjetas de Sección */
     .clever-box {
         background: #ffffff;
         border-radius: 24px;
-        padding: 28px;
+        padding: 24px;
         border: 1px solid #e7f0eb;
         box-shadow: 0 4px 20px rgba(0, 40, 20, 0.03);
         margin-bottom: 20px;
     }
     
-    .kpi-label {
-        font-size: 14px;
-        font-weight: 600;
-        color: #6a8275;
-        margin-bottom: 6px;
-    }
-    
-    .kpi-main-number {
-        font-size: 38px;
-        font-weight: 800;
-        color: #0d2319;
-        line-height: 1.1;
-    }
-    
-    .badge-clever {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 700;
-        background-color: #ddfbe8;
-        color: #0b7c3e;
-        margin-top: 10px;
-    }
-    
-    .badge-clever.up {
-        background-color: #fee4e2;
-        color: #b42318;
-    }
-
-    /* Filas de la lista de categorías al lado de la dona */
+    /* Filas de categorías */
     .cat-row {
         display: flex;
         justify-content: space-between;
@@ -103,7 +99,7 @@ st.markdown("""
         margin-right: 8px;
     }
     
-    /* Tarjetas de Insights */
+    /* Insights Cards */
     .insight-card {
         background: #ffffff;
         border-radius: 18px;
@@ -139,7 +135,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Cargar base de datos
 @st.cache_data(ttl=3)
 def cargar_datos():
     db = SessionLocal()
@@ -164,7 +159,7 @@ def cargar_datos():
 
 df = cargar_datos()
 
-# Encabezado estilo Clever
+# Encabezado
 st.markdown("""
 <div class="clever-top">
     <div class="clever-logo">Clever <span style="font-size:16px; font-weight:600; color:#2bb673;">• Dashboard</span></div>
@@ -172,10 +167,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if df.empty:
-    st.info("👋 Aún no tienes transacciones registradas. Envía tu primer gasto por Telegram.")
+    st.info("👋 Aún no tienes transacciones registradas. Envía tu primer mensaje o audio por Telegram.")
     st.stop()
 
-# Manejo de fechas y meses
+# Manejo de periodos mensuales
 df["fecha"] = pd.to_datetime(df["fecha"])
 df["mes_periodo"] = df["fecha"].dt.to_period("M")
 
@@ -195,41 +190,49 @@ df_mes = df[df["mes_periodo"] == mes_seleccionado]
 periodo_anterior = mes_seleccionado - 1
 df_mes_ant = df[df["mes_periodo"] == periodo_anterior]
 
+# Totales del mes
 gastos_mes = df_mes[df_mes["tipo"] == "Gasto"]["monto"].sum()
 ingresos_mes = df_mes[df_mes["tipo"] == "Ingreso"]["monto"].sum()
+balance_neto = ingresos_mes - gastos_mes
+
 gastos_mes_ant = df_mes_ant[df_mes_ant["tipo"] == "Gasto"]["monto"].sum() if not df_mes_ant.empty else 0.0
 
-dif_porcentaje = 0.0
+dif_gastos = 0.0
 if gastos_mes_ant > 0:
-    dif_porcentaje = ((gastos_mes - gastos_mes_ant) / gastos_mes_ant) * 100
+    dif_gastos = ((gastos_mes - gastos_mes_ant) / gastos_mes_ant) * 100
 
 dias_del_mes = max(df_mes["fecha"].dt.day.max(), 1)
 gasto_diario_promedio = gastos_mes / dias_del_mes
 
-# --- PANEL PRINCIPAL: Resumen con Dona integrada & Insights ---
+# --- 1. TARJETAS DE INGRESOS, GASTOS Y BALANCE ---
+st.markdown(f"""
+<div class="kpi-container">
+    <div class="kpi-card">
+        <div class="kpi-label">🟢 Total Ingresos ({meses_nombres[mes_seleccionado]})</div>
+        <div class="kpi-val ingreso">S/ {ingresos_mes:,.2f}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">🔴 Total Gastos ({meses_nombres[mes_seleccionado]})</div>
+        <div class="kpi-val gasto">S/ {gastos_mes:,.2f}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">💰 Balance Neto</div>
+        <div class="kpi-val balance" style="color: {'#0b7c3e' if balance_neto >= 0 else '#b42318'};">S/ {balance_neto:,.2f}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 2. DISTRIBUCIÓN POR CATEGORÍAS & INSIGHTS ---
 col_izq, col_der = st.columns([5, 4], gap="large")
 
 with col_izq:
-    st.markdown(f"""
-    <div class="clever-box">
-        <div class="kpi-label">Resumen del mes ({meses_nombres[mes_seleccionado]})</div>
-        <div class="kpi-main-number">S/ {gastos_mes:,.2f}</div>
-        <div>
-            <span class="badge-clever {'up' if dif_porcentaje > 0 else ''}">
-                {'⬆' if dif_porcentaje > 0 else '⬇'} {abs(dif_porcentaje):.1f}% vs. mes pasado
-            </span>
-        </div>
-        <div style="margin-top: 12px; font-size: 13px; color: #6a8275;">
-            Gasto diario promedio: <strong style="color: #11261d;">S/ {gasto_diario_promedio:,.2f}</strong>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="clever-box">', unsafe_allow_html=True)
+    st.markdown('<div class="kpi-label" style="font-size:16px; margin-bottom:15px; color:#11261d;">🏷️ Desglose de Gastos por Categoría</div>', unsafe_allow_html=True)
     
-    # Desglose de Donut + Lista de Categorías
     df_gastos = df_mes[df_mes["tipo"] == "Gasto"]
     if not df_gastos.empty:
         cat_data = df_gastos.groupby("categoria")["monto"].sum().reset_index()
-        cat_data["porcentaje"] = (cat_data["monto"] / gastos_mes) * 100
+        cat_data["porcentaje"] = (cat_data["monto"] / gastos_mes) * 100 if gastos_mes > 0 else 0
         cat_data = cat_data.sort_values(by="monto", ascending=False)
         
         colores_hex = ["#006837", "#00874e", "#2bb673", "#5cd094", "#8de4b5", "#bbf1d4", "#d4f7e2"]
@@ -268,6 +271,9 @@ with col_izq:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+    else:
+        st.write("No hay gastos registrados en este periodo.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with col_der:
     st.markdown('<div class="kpi-label" style="margin-bottom: 12px;">📊 Insights inteligentes</div>', unsafe_allow_html=True)
@@ -276,8 +282,8 @@ with col_der:
     <div class="insight-card">
         <div class="insight-icon-box">📉</div>
         <div>
-            <div class="insight-tag">Gastos del mes</div>
-            <div class="insight-desc">{'Llevas un ' + f"{abs(dif_porcentaje):.1f}% menos que el mes pasado." if dif_porcentaje <= 0 else 'Llevas un ' + f"{dif_porcentaje:.1f}% más que el mes pasado."}</div>
+            <div class="insight-tag">Comparativa mensual</div>
+            <div class="insight-desc">{'Gastaste un ' + f"{abs(dif_gastos):.1f}% menos que el mes pasado." if dif_gastos <= 0 else 'Gastaste un ' + f"{dif_gastos:.1f}% más que el mes pasado."}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -300,15 +306,16 @@ with col_der:
     <div class="insight-card">
         <div class="insight-icon-box">⏱️</div>
         <div>
-            <div class="insight-tag">Proyección de gasto</div>
+            <div class="insight-tag">Proyección de gasto mensual</div>
             <div class="insight-desc">Gastarás aprox. <strong>S/ {proyeccion:,.2f}</strong> a fin de mes.</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# Tabla de movimientos
+# --- 3. HISTORIAL DE MOVIMIENTOS ---
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("### 📋 Movimientos del Mes")
+
 df_mostrar = df_mes[["fecha", "descripcion", "categoria", "tipo", "medio", "monto", "moneda"]].copy()
 df_mostrar["fecha"] = df_mostrar["fecha"].dt.strftime("%d/%m/%Y %H:%M")
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
