@@ -19,8 +19,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     saludo = (
         "👋 **¡Hola! Soy Clever, tu asesor financiero personal.**\n\n"
         "Puedes usarme de dos formas:\n"
-        "1. **Registrar movimientos:** Escríbeme algo como _'Gasté 20 soles en taxi'_ o _'Me pagaron 50 soles'_.\n"
-        "2. **Hacerme preguntas:** Pregúntame cosas como _'¿En qué gasté más este mes?'_, _'¿Cuánto he gastado?'_ o _'Dame un resumen'_."
+        "1. **Registrar movimientos:** Escríbeme _'Gasté 20 soles en comida'_ o _'Me depositaron 50'_.\n"
+        "2. **Hacer consultas:** Pregúntame _'¿En qué gasté más?'_, _'¿Cuánto he gastado?'_ o _'Dame un resumen'_."
     )
     await update.message.reply_text(saludo, parse_mode="Markdown")
 
@@ -34,18 +34,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         analisis = procesar_mensaje_con_gemini(texto_usuario)
         
-        if not analisis:
-            await update.message.reply_text("❌ No pude conectar con el servicio de IA.")
+        if not analisis or "error" in analisis:
+            err_msg = analisis.get("error", "Error desconocido") if isinstance(analisis, dict) else "Sin respuesta"
+            await update.message.reply_text(f"❌ Error con Gemini: {err_msg}")
             return
 
-        # CASO 1: EL USUARIO HACE UNA PREGUNTA SOBRE SUS GASTOS
+        # CASO 1: EL USUARIO HACE UNA PREGUNTA / CONSULTA
         if analisis.get("intent") == "consulta":
             db = SessionLocal()
             try:
-                # Obtener las transacciones del mes en curso
-                ahora = datetime.now()
                 registros = db.query(Transaccion).order_by(Transaccion.created_at.desc()).limit(50).all()
-                
                 lista_tx = [{
                     "fecha": r.created_at.strftime("%d/%m/%Y"),
                     "monto": float(r.amount),
@@ -61,7 +59,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.close()
             return
 
-        # CASO 2: EL USUARIO ESTÁ REGISTRANDO UN GASTO O INGRESO
+        # CASO 2: EL USUARIO REGISTRA UN GASTO O INGRESO
         if "amount" in analisis and analisis["amount"] > 0:
             db = SessionLocal()
             try:
@@ -91,11 +89,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.close()
         else:
             await update.message.reply_text("❌ No detecté un monto válido para registrar.")
-            
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error al procesar: {e}")
 
-# Webhook para correos BCP/Yape y Keep-Alive
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error interno: {e}")
+
 async def handle_ping(request):
     return web.Response(text="Bot activo y saludable 🚀")
 
@@ -130,7 +127,6 @@ async def main():
         print("❌ TELEGRAM_BOT_TOKEN no configurado.")
         return
 
-    # Iniciar bot de Telegram
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -138,9 +134,8 @@ async def main():
     await app.initialize()
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
-    print("Bot de Telegram iniciado con éxito...")
+    print("Bot de Telegram iniciado...")
 
-    # Iniciar servidor Web para Render
     server = web.Application()
     server.router.add_get("/", handle_ping)
     server.router.add_post("/webhook", handle_webhook_correo)
@@ -151,7 +146,6 @@ async def main():
     await site.start()
     print(f"Servidor web escuchando en puerto {PORT}...")
 
-    # Mantener el proceso vivo
     while True:
         await asyncio.sleep(3600)
 
