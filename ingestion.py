@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Modelo especificado
 MODELO_GEMINI = "gemini-3.6-flash"
 
 def obtener_cliente():
