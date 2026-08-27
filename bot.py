@@ -1,105 +1,77 @@
 import os
-import json
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import asyncio
+from datetime import datetime
+from aiohttp import web
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 from database import SessionLocal
 from models import Transaccion
-from ingestion import procesar_mensaje_con_gemini
+from ingestion import procesar_mensaje_con_gemini, responder_consulta_financiera
 
 load_dotenv()
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# --- SERVIDOR WEB CON REUTILIZACIÓN DE PUERTO ---
-class CustomHandler(BaseHTTPRequestHandler):
-    def do_HEAD(self):
-        """Responde a las verificaciones de salud de Render"""
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain; charset=utf-8')
-        self.end_headers()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 10000))
 
-    def do_GET(self):
-        """Responde a cron-job.org para mantener Render despierto"""
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(b"Bot activo")
-
-    def do_POST(self):
-        """Recibe notificaciones de BCP / Yape desde Apps Script"""
-        if self.path == '/webhook/bcp':
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            
-            try:
-                data = json.loads(post_data.decode('utf-8'))
-                texto_correo = data.get('text', '')
-
-                if texto_correo:
-                    datos = procesar_mensaje_con_gemini(f"Notificación bancaria: {texto_correo}")
-
-                    if datos and "amount" in datos:
-                        db = SessionLocal()
-                        try:
-                            nueva = Transaccion(
-                                amount=datos["amount"],
-                                currency=datos.get("currency", "PEN"),
-                                category=datos.get("category", "Otros"),
-                                transaction_type=datos.get("transaction_type", "Gasto"),
-                                payment_method=datos.get("payment_method", "BCP"),
-                                description=datos.get("description", "Notificación bancaria")
-                            )
-                            db.add(nueva)
-                            db.commit()
-                            print(f"✅ Gasto bancario registrado: S/. {datos['amount']}")
-                        finally:
-                            db.close()
-
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(b'{"status": "success"}')
-            except Exception as e:
-                print(f"Error procesando webhook: {e}")
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(b'{"status": "error"}')
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-class ReusableHTTPServer(HTTPServer):
-    allow_reuse_address = True
-
-def run_health_check_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = ReusableHTTPServer(("0.0.0.0", port), CustomHandler)
-    server.serve_forever()
-
-# --- BOT DE TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 ¡Hola! Envíame un mensaje de texto o audio para registrar tus finanzas.")
+    saludo = (
+        "👋 **¡Hola! Soy Clever, tu asesor financiero personal.**\n\n"
+        "Puedes usarme de dos formas:\n"
+        "1. **Registrar movimientos:** Escríbeme algo como _'Gasté 20 soles en taxi'_ o _'Me pagaron 50 soles'_.\n"
+        "2. **Hacerme preguntas:** Pregúntame cosas como _'¿En qué gasté más este mes?'_, _'¿Cuánto he gastado?'_ o _'Dame un resumen'_."
+    )
+    await update.message.reply_text(saludo, parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_usuario = update.message.text
+    if not texto_usuario:
+        return
+        
     await update.message.reply_chat_action("typing")
     
     try:
-        datos = procesar_mensaje_con_gemini(texto_usuario)
+        analisis = procesar_mensaje_con_gemini(texto_usuario)
         
-        if datos and "amount" in datos:
+        if not analisis:
+            await update.message.reply_text("❌ No pude conectar con el servicio de IA.")
+            return
+
+        # CASO 1: EL USUARIO HACE UNA PREGUNTA SOBRE SUS GASTOS
+        if analisis.get("intent") == "consulta":
+            db = SessionLocal()
+            try:
+                # Obtener las transacciones del mes en curso
+                ahora = datetime.now()
+                registros = db.query(Transaccion).order_by(Transaccion.created_at.desc()).limit(50).all()
+                
+                lista_tx = [{
+                    "fecha": r.created_at.strftime("%d/%m/%Y"),
+                    "monto": float(r.amount),
+                    "tipo": r.transaction_type,
+                    "categoria": r.category,
+                    "descripcion": r.description,
+                    "medio": r.payment_method
+                } for r in registros]
+                
+                respuesta_ia = responder_consulta_financiera(texto_usuario, lista_tx)
+                await update.message.reply_text(respuesta_ia)
+            finally:
+                db.close()
+            return
+
+        # CASO 2: EL USUARIO ESTÁ REGISTRANDO UN GASTO O INGRESO
+        if "amount" in analisis and analisis["amount"] > 0:
             db = SessionLocal()
             try:
                 nueva = Transaccion(
-                    amount=datos["amount"],
-                    currency=datos.get("currency", "PEN"),
-                    category=datos.get("category", "Otros"),
-                    transaction_type=datos.get("transaction_type", "Gasto"),
-                    payment_method=datos.get("payment_method", "Efectivo"),
-                    description=datos.get("description", texto_usuario)
+                    amount=analisis["amount"],
+                    currency=analisis.get("currency", "PEN"),
+                    category=analisis.get("category", "Otros"),
+                    transaction_type=analisis.get("transaction_type", "Gasto"),
+                    payment_method=analisis.get("payment_method", "Efectivo"),
+                    description=analisis.get("description", texto_usuario)
                 )
                 db.add(nueva)
                 db.commit()
@@ -118,20 +90,70 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             finally:
                 db.close()
         else:
-            await update.message.reply_text("❌ No pude entender los datos de la transacción. Intenta detallar el monto y la categoría.")
+            await update.message.reply_text("❌ No detecté un monto válido para registrar.")
+            
     except Exception as e:
-        await update.message.reply_text(f"❌ Error procesando el mensaje: {e}")
+        await update.message.reply_text(f"❌ Error al procesar: {e}")
 
-def main():
-    threading.Thread(target=run_health_check_server, daemon=True).start()
+# Webhook para correos BCP/Yape y Keep-Alive
+async def handle_ping(request):
+    return web.Response(text="Bot activo y saludable 🚀")
 
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+async def handle_webhook_correo(request):
+    try:
+        data = await request.json()
+        texto_correo = data.get("mensaje", "")
+        if texto_correo:
+            analisis = procesar_mensaje_con_gemini(texto_correo)
+            if analisis and analisis.get("amount", 0) > 0:
+                db = SessionLocal()
+                try:
+                    nueva = Transaccion(
+                        amount=analisis["amount"],
+                        currency=analisis.get("currency", "PEN"),
+                        category=analisis.get("category", "Otros"),
+                        transaction_type=analisis.get("transaction_type", "Gasto"),
+                        payment_method=analisis.get("payment_method", "Yape"),
+                        description=analisis.get("description", "Notificación bancaria")
+                    )
+                    db.add(nueva)
+                    db.commit()
+                    return web.json_response({"status": "ok", "id": nueva.id})
+                finally:
+                    db.close()
+        return web.json_response({"status": "ignorado"})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+async def main():
+    if not TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN no configurado.")
+        return
+
+    # Iniciar bot de Telegram
+    app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Bot y Webhook iniciados con éxito...")
-    app.run_polling(drop_pending_updates=True)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True)
+    print("Bot de Telegram iniciado con éxito...")
+
+    # Iniciar servidor Web para Render
+    server = web.Application()
+    server.router.add_get("/", handle_ping)
+    server.router.add_post("/webhook", handle_webhook_correo)
+    
+    runner = web.AppRunner(server)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    print(f"Servidor web escuchando en puerto {PORT}...")
+
+    # Mantener el proceso vivo
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    main()
-    
+    asyncio.run(main())
