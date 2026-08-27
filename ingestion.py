@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Modelo oficial con alta cuota diaria gratuita
-MODELO_GEMINI = "gemini-2.5-flash"
+# Modelo especificado
+MODELO_GEMINI = "gemini-3.6-flash"
 
 def obtener_cliente():
     api_key = os.getenv("GEMINI_API_KEY")
