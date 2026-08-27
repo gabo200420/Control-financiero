@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Modelo con 1,500 consultas gratis al día
+MODELO_GEMINI = "gemini-1.5-flash"
+
 def obtener_cliente():
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -45,7 +48,7 @@ def procesar_mensaje_con_gemini(texto: str):
 
     try:
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model=MODELO_GEMINI,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json"
@@ -111,7 +114,7 @@ def responder_consulta_financiera(pregunta: str, transacciones: list) -> str:
 
     try:
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model=MODELO_GEMINI,
             contents=prompt
         )
         return response.text.strip() if response.text else "No pude generar la respuesta a la consulta."
