@@ -101,4 +101,20 @@ else:
         use_container_width=True,
         hide_index=True
     )
+    # --- Sección para eliminar transacciones ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🗑️ Eliminar Registro")
+
+transacciones_df = pd.read_sql("SELECT id, description, amount, created_at FROM transacciones ORDER BY id DESC LIMIT 20", engine)
+
+if not transacciones_df.empty:
+    opciones = {f"#{row['id']} - {row['description']} (S/. {row['amount']})": row['id'] for _, row in transacciones_df.iterrows()}
+    seleccion = st.sidebar.selectbox("Selecciona la transacción:", list(opciones.keys()))
     
+    if st.sidebar.button("Eliminar", type="primary"):
+        id_a_borrar = opciones[seleccion]
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM transacciones WHERE id = :id"), {"id": id_a_borrar})
+        st.sidebar.success(f"Transacción #{id_a_borrar} eliminada.")
+        st.rerun()
+        
