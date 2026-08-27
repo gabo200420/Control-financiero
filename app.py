@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilos visuales Clever
+# Estilos visuales Clever (Verde & Blanco)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -40,7 +40,7 @@ st.markdown("""
         letter-spacing: -0.8px;
     }
     
-    /* Métricas Principales */
+    /* Tarjetas de Métricas Principales */
     .kpi-container {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -69,7 +69,7 @@ st.markdown("""
     .kpi-val.gasto { color: #b42318; }
     .kpi-val.balance { color: #11261d; }
 
-    /* Contenedor de gráficos e insights */
+    /* Tarjetas de Sección */
     .clever-box {
         background: #ffffff;
         border-radius: 24px;
@@ -79,6 +79,7 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
+    /* Filas de categorías */
     .cat-row {
         display: flex;
         justify-content: space-between;
@@ -98,6 +99,7 @@ st.markdown("""
         margin-right: 8px;
     }
     
+    /* Insights Cards */
     .insight-card {
         background: #ffffff;
         border-radius: 18px;
@@ -130,10 +132,54 @@ st.markdown("""
         color: #1a3327;
         margin-top: 2px;
     }
+
+    /* Filas de Pagos Fijos / Suscripciones */
+    .sub-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        background: #ffffff;
+        border-radius: 14px;
+        border: 1px solid #eef3f0;
+        margin-bottom: 10px;
+    }
+    .sub-name {
+        font-weight: 700;
+        font-size: 15px;
+        color: #1a3327;
+    }
+    .sub-date {
+        font-size: 12px;
+        color: #798e82;
+        margin-top: 2px;
+    }
+    .sub-badge-paid {
+        background-color: #ddfbe8;
+        color: #0b7c3e;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .sub-badge-pending {
+        background-color: #f1f5f9;
+        color: #64748b;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 1. Función para eliminar transacciones de la Base de Datos
+# 1. Función para eliminar transacciones
 def eliminar_transaccion(transaccion_id: int):
     db = SessionLocal()
     try:
@@ -220,7 +266,7 @@ if gastos_mes_ant > 0:
 dias_del_mes = max(df_mes["fecha"].dt.day.max(), 1)
 gasto_diario_promedio = gastos_mes / dias_del_mes
 
-# Métricas Principales
+# --- 1. TARJETAS DE INGRESOS, GASTOS Y BALANCE ---
 st.markdown(f"""
 <div class="kpi-container">
     <div class="kpi-card">
@@ -238,7 +284,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Sección Gráficos & Insights
+# --- 2. CATEGORÍAS & INSIGHTS ---
 col_izq, col_der = st.columns([5, 4], gap="large")
 
 with col_izq:
@@ -328,8 +374,66 @@ with col_der:
     </div>
     """, unsafe_allow_html=True)
 
-# Historial de Movimientos
-st.markdown("<br>", unsafe_allow_html=True)
+# --- 3. DETECTOR DE PAGOS FIJOS / SUSCRIPCIONES (Estilo Clever) ---
+st.markdown('<div class="clever-box">', unsafe_allow_html=True)
+st.markdown('### 🔄 Pagos Fijos y Suscripciones del Mes')
+st.caption("Detección automática de servicios y pagos mensuales recurrentes:")
+
+# Lista de suscripciones y servicios a monitorear (puedes ajustar o agregar más fácilmente)
+SERVICIOS_FIJOS = [
+    {"nombre": "Spotify", "palabras": ["spotify"], "dia_estimado": 5, "monto_aprox": 15.90, "icono": "🎵"},
+    {"nombre": "Netflix", "palabras": ["netflix"], "dia_estimado": 10, "monto_aprox": 28.90, "icono": "🎬"},
+    {"nombre": "Internet / Telefonía", "palabras": ["internet", "movistar", "claro", "entel", "win", "plan"], "dia_estimado": 20, "monto_aprox": 65.00, "icono": "🌐"},
+    {"nombre": "Luz / Electricidad", "palabras": ["luz", "enel", "luz del sur", "electrosur", "electronorte", "ensa"], "dia_estimado": 25, "monto_aprox": 85.00, "icono": "⚡"},
+    {"nombre": "Agua / Sedapal", "palabras": ["agua", "sedapal", "epsel"], "dia_estimado": 28, "monto_aprox": 35.00, "icono": "💧"},
+    {"nombre": "ChatGPT / OpenAI", "palabras": ["openai", "chatgpt"], "dia_estimado": 15, "monto_aprox": 75.00, "icono": "🤖"}
+]
+
+col_sub1, col_sub2 = st.columns(2)
+
+for i, serv in enumerate(SERVICIOS_FIJOS):
+    col = col_sub1 if i % 2 == 0 else col_sub2
+    
+    # Buscar si existe alguna transacción en este mes que coincida con este servicio
+    pago_detectado = None
+    for _, fila in df_mes.iterrows():
+        desc = str(fila["descripcion"]).lower()
+        if any(p in desc for p in serv["palabras"]):
+            pago_detectado = fila
+            break
+    
+    with col:
+        if pago_detectado is not None:
+            dia_pago = pd.to_datetime(pago_detectado["fecha"]).strftime("%d/%m")
+            st.markdown(f"""
+            <div class="sub-row">
+                <div>
+                    <div class="sub-name">{serv['icono']} {serv['nombre']}</div>
+                    <div class="sub-date">Pagado el {dia_pago}</div>
+                </div>
+                <div style="text-align: right; display: flex; align-items: center; gap: 12px;">
+                    <strong style="color: #11261d;">S/ {pago_detectado['monto']:,.2f}</strong>
+                    <span class="sub-badge-paid">✔ Pagado</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="sub-row">
+                <div>
+                    <div class="sub-name">{serv['icono']} {serv['nombre']}</div>
+                    <div class="sub-date">Día estimado: {serv['dia_estimado']} de cada mes</div>
+                </div>
+                <div style="text-align: right; display: flex; align-items: center; gap: 12px;">
+                    <span style="color: #8c9e94;">~S/ {serv['monto_aprox']:,.2f}</span>
+                    <span class="sub-badge-pending">⏳ Pendiente</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 4. HISTORIAL DE MOVIMIENTOS ---
 st.markdown("### 📋 Movimientos del Mes")
 
 df_mostrar = df_mes[["id", "fecha", "descripcion", "categoria", "tipo", "medio", "monto", "moneda"]].copy()
