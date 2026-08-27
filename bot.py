@@ -1,3 +1,25 @@
+# --- Tus imports existentes ---
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+# (el resto de tus imports...)
+
+# --- BLOQUE NUEVO (Pégalo aquí) ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot activo")
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+# Iniciar servidor web en segundo plano
+threading.Thread(target=run_health_check_server, daemon=True).start()
+
+# --- AQUÍ CONTINÚA TODO TU CÓDIGO ANTERIOR DEL BOT ---
 import os
 import tempfile
 import logging
