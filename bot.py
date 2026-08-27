@@ -1,25 +1,3 @@
-# --- Tus imports existentes ---
-import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-# (el resto de tus imports...)
-
-# --- BLOQUE NUEVO (Pégalo aquí) ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot activo")
-
-def run_health_check_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    server.serve_forever()
-
-# Iniciar servidor web en segundo plano
-threading.Thread(target=run_health_check_server, daemon=True).start()
-
-# --- AQUÍ CONTINÚA TODO TU CÓDIGO ANTERIOR DEL BOT ---
 import os
 import json
 import threading
@@ -35,8 +13,14 @@ from ingestion import procesar_mensaje_con_gemini
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# --- SERVIDOR WEB (Cronjob + Webhook de BCP) ---
+# --- SERVIDOR WEB CON REUTILIZACIÓN DE PUERTO ---
 class CustomHandler(BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        """Responde a las verificaciones de salud de Render"""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+
     def do_GET(self):
         """Responde a cron-job.org para mantener Render despierto"""
         self.send_response(200)
@@ -45,7 +29,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot activo")
 
     def do_POST(self):
-        """Recibe notificaciones automáticas de BCP desde Google Apps Script"""
+        """Recibe notificaciones de BCP / Yape desde Apps Script"""
         if self.path == '/webhook/bcp':
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
@@ -55,7 +39,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 texto_correo = data.get('text', '')
 
                 if texto_correo:
-                    datos = procesar_mensaje_con_gemini(f"Notificación bancaria BCP: {texto_correo}")
+                    datos = procesar_mensaje_con_gemini(f"Notificación bancaria: {texto_correo}")
 
                     if datos and "amount" in datos:
                         db = SessionLocal()
@@ -66,11 +50,11 @@ class CustomHandler(BaseHTTPRequestHandler):
                                 category=datos.get("category", "Otros"),
                                 transaction_type=datos.get("transaction_type", "Gasto"),
                                 payment_method=datos.get("payment_method", "BCP"),
-                                description=datos.get("description", "Notificación BCP")
+                                description=datos.get("description", "Notificación bancaria")
                             )
                             db.add(nueva)
                             db.commit()
-                            print(f"✅ Gasto BCP registrado: S/. {datos['amount']} - {datos.get('description')}")
+                            print(f"✅ Gasto bancario registrado: S/. {datos['amount']}")
                         finally:
                             db.close()
 
@@ -87,9 +71,12 @@ class CustomHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
 def run_health_check_server():
     port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), CustomHandler)
+    server = ReusableHTTPServer(("0.0.0.0", port), CustomHandler)
     server.serve_forever()
 
 # --- BOT DE TELEGRAM ---
@@ -100,43 +87,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_usuario = update.message.text
     await update.message.reply_chat_action("typing")
     
-    datos = procesar_mensaje_con_gemini(texto_usuario)
-    
-    if datos and "amount" in datos:
-        db = SessionLocal()
-        try:
-            nueva = Transaccion(
-                amount=datos["amount"],
-                currency=datos.get("currency", "PEN"),
-                category=datos.get("category", "Otros"),
-                transaction_type=datos.get("transaction_type", "Gasto"),
-                payment_method=datos.get("payment_method", "Efectivo"),
-                description=datos.get("description", texto_usuario)
-            )
-            db.add(nueva)
-            db.commit()
-            db.refresh(nueva)
-            
-            icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
-            respuesta = (
-                f"✅ **Transacción Registrada #{nueva.id}**\n\n"
-                f"📌 **Tipo:** {icono} {nueva.transaction_type}\n"
-                f"💰 **Monto:** S/. {nueva.amount:.2f} {nueva.currency}\n"
-                f"🏷️ **Categoría:** {nueva.category}\n"
-                f"💳 **Medio:** {nueva.payment_method}\n"
-                f"📝 **Descripción:** {nueva.description}"
-            )
-            await update.message.reply_text(respuesta, parse_mode="Markdown")
-        finally:
-            db.close()
-    else:
-        await update.message.reply_text("❌ No pude entender los datos de la transacción. Intenta detallar el monto y la categoría.")
+    try:
+        datos = procesar_mensaje_con_gemini(texto_usuario)
+        
+        if datos and "amount" in datos:
+            db = SessionLocal()
+            try:
+                nueva = Transaccion(
+                    amount=datos["amount"],
+                    currency=datos.get("currency", "PEN"),
+                    category=datos.get("category", "Otros"),
+                    transaction_type=datos.get("transaction_type", "Gasto"),
+                    payment_method=datos.get("payment_method", "Efectivo"),
+                    description=datos.get("description", texto_usuario)
+                )
+                db.add(nueva)
+                db.commit()
+                db.refresh(nueva)
+                
+                icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
+                respuesta = (
+                    f"✅ **Transacción Registrada #{nueva.id}**\n\n"
+                    f"📌 **Tipo:** {icono} {nueva.transaction_type}\n"
+                    f"💰 **Monto:** S/. {nueva.amount:.2f} {nueva.currency}\n"
+                    f"🏷️ **Categoría:** {nueva.category}\n"
+                    f"💳 **Medio:** {nueva.payment_method}\n"
+                    f"📝 **Descripción:** {nueva.description}"
+                )
+                await update.message.reply_text(respuesta, parse_mode="Markdown")
+            finally:
+                db.close()
+        else:
+            await update.message.reply_text("❌ No pude entender los datos de la transacción. Intenta detallar el monto y la categoría.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error procesando el mensaje: {e}")
 
 def main():
-    # Iniciar servidor web en segundo plano
     threading.Thread(target=run_health_check_server, daemon=True).start()
 
-    # Iniciar bot de Telegram
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -146,3 +134,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
