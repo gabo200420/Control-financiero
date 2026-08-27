@@ -29,7 +29,11 @@ def procesar_mensaje_con_gemini(texto: str):
     }}
     """
 
-    modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    modelos = [
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+    ]
 
     for m in modelos:
         try:
