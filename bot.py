@@ -21,100 +21,128 @@ threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # --- AQUÍ CONTINÚA TODO TU CÓDIGO ANTERIOR DEL BOT ---
 import os
-import tempfile
-import logging
+import json
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from ingestion import extraer_transaccion_desde_texto, extraer_transaccion_desde_audio
-from database import guardar_transaccion_segura
+
+from database import SessionLocal
+from models import Transaccion
+from ingestion import procesar_mensaje_con_gemini
 
 load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+# --- SERVIDOR WEB (Cronjob + Webhook de BCP) ---
+class CustomHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Responde a cron-job.org para mantener Render despierto"""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b"Bot activo")
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    def do_POST(self):
+        """Recibe notificaciones automáticas de BCP desde Google Apps Script"""
+        if self.path == '/webhook/bcp':
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                texto_correo = data.get('text', '')
 
+                if texto_correo:
+                    datos = procesar_mensaje_con_gemini(f"Notificación bancaria BCP: {texto_correo}")
+
+                    if datos and "amount" in datos:
+                        db = SessionLocal()
+                        try:
+                            nueva = Transaccion(
+                                amount=datos["amount"],
+                                currency=datos.get("currency", "PEN"),
+                                category=datos.get("category", "Otros"),
+                                transaction_type=datos.get("transaction_type", "Gasto"),
+                                payment_method=datos.get("payment_method", "BCP"),
+                                description=datos.get("description", "Notificación BCP")
+                            )
+                            db.add(nueva)
+                            db.commit()
+                            print(f"✅ Gasto BCP registrado: S/. {datos['amount']} - {datos.get('description')}")
+                        finally:
+                            db.close()
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"status": "success"}')
+            except Exception as e:
+                print(f"Error procesando webhook: {e}")
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b'{"status": "error"}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), CustomHandler)
+    server.serve_forever()
+
+# --- BOT DE TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 ¡Hola! Soy tu asistente financiero.\n\n"
-        "Puedes registrar gastos o ingresos enviándome:\n"
-        "• Un mensaje de texto (ej: 'Gasté 35 soles en almuerzo con Yape')\n"
-        "• Un mensaje de voz o audio explicando el movimiento.\n\n"
-        "¡Pruébalo ahora!"
-    )
+    await update.message.reply_text("👋 ¡Hola! Envíame un mensaje de texto o audio para registrar tus finanzas.")
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    try:
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        
-        tx_data = extraer_transaccion_desde_texto(user_text)
-        tx = guardar_transaccion_segura(tx_data)
-        
-        simbolo = "S/." if tx.currency == "PEN" else "$"
-        emoji_tipo = "🔴 Gasto" if tx.transaction_type == "Gasto" else "🟢 Ingreso"
-        
-        mensaje = (
-            f"✅ *Transacción Registrada #{tx.id}*\n\n"
-            f"📌 *Tipo:* {emoji_tipo}\n"
-            f"💰 *Monto:* {simbolo} {tx.amount:.2f} {tx.currency}\n"
-            f"🏷️ *Categoría:* {tx.category}\n"
-            f"💳 *Medio:* {tx.payment_method}\n"
-            f"📝 *Descripción:* {tx.description}"
-        )
-        await update.message.reply_text(mensaje, parse_mode="Markdown")
-    except Exception as e:
-        logging.error(f"Error procesando texto: {e}")
-        await update.message.reply_text(f"❌ Ocurrió un error al procesar tu mensaje: {str(e)}")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto_usuario = update.message.text
+    await update.message.reply_chat_action("typing")
+    
+    datos = procesar_mensaje_con_gemini(texto_usuario)
+    
+    if datos and "amount" in datos:
+        db = SessionLocal()
+        try:
+            nueva = Transaccion(
+                amount=datos["amount"],
+                currency=datos.get("currency", "PEN"),
+                category=datos.get("category", "Otros"),
+                transaction_type=datos.get("transaction_type", "Gasto"),
+                payment_method=datos.get("payment_method", "Efectivo"),
+                description=datos.get("description", texto_usuario)
+            )
+            db.add(nueva)
+            db.commit()
+            db.refresh(nueva)
+            
+            icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
+            respuesta = (
+                f"✅ **Transacción Registrada #{nueva.id}**\n\n"
+                f"📌 **Tipo:** {icono} {nueva.transaction_type}\n"
+                f"💰 **Monto:** S/. {nueva.amount:.2f} {nueva.currency}\n"
+                f"🏷️ **Categoría:** {nueva.category}\n"
+                f"💳 **Medio:** {nueva.payment_method}\n"
+                f"📝 **Descripción:** {nueva.description}"
+            )
+            await update.message.reply_text(respuesta, parse_mode="Markdown")
+        finally:
+            db.close()
+    else:
+        await update.message.reply_text("❌ No pude entender los datos de la transacción. Intenta detallar el monto y la categoría.")
 
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        
-        voice = update.message.voice or update.message.audio
-        voice_file = await context.bot.get_file(voice.file_id)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_audio:
-            temp_path = temp_audio.name
-            
-        await voice_file.download_to_drive(custom_path=temp_path)
-        
-        tx_data = extraer_transaccion_desde_audio(temp_path)
-        tx = guardar_transaccion_segura(tx_data)
-        
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-            
-        simbolo = "S/." if tx.currency == "PEN" else "$"
-        emoji_tipo = "🔴 Gasto" if tx.transaction_type == "Gasto" else "🟢 Ingreso"
-        
-        mensaje = (
-            f"🎙️ *Audio Procesado y Registrado #{tx.id}*\n\n"
-            f"📌 *Tipo:* {emoji_tipo}\n"
-            f"💰 *Monto:* {simbolo} {tx.amount:.2f} {tx.currency}\n"
-            f"🏷️ *Categoría:* {tx.category}\n"
-            f"💳 *Medio:* {tx.payment_method}\n"
-            f"📝 *Descripción:* {tx.description}"
-        )
-        await update.message.reply_text(mensaje, parse_mode="Markdown")
-    except Exception as e:
-        logging.error(f"Error procesando audio: {e}")
-        await update.message.reply_text(f"❌ Ocurrió un error al procesar el audio: {str(e)}")
+def main():
+    # Iniciar servidor web en segundo plano
+    threading.Thread(target=run_health_check_server, daemon=True).start()
+
+    # Iniciar bot de Telegram
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("Bot y Webhook iniciados con éxito...")
+    app.run_polling()
 
 if __name__ == "__main__":
-    if not TOKEN:
-        raise ValueError("No se encontró TELEGRAM_BOT_TOKEN en el archivo .env")
-        
-    app = ApplicationBuilder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
-    
-    print("🤖 Bot de finanzas iniciado y listo para recibir mensajes...")
-    app.run_polling()
-    
+    main()
