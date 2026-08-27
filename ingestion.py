@@ -5,28 +5,45 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 def procesar_mensaje_con_gemini(texto: str):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("❌ Error: GEMINI_API_KEY no encontrada en las variables de entorno.")
+        return None
+
+    genai.configure(api_key=api_key)
+
     prompt = f"""
-    Eres un asistente contable. Analiza el siguiente texto de una transacción bancaria en Perú (BCP, Yape, Plin):
+    Eres un asistente contable. Analiza el siguiente texto de un gasto, ingreso o notificación bancaria en Perú (BCP, Yape, Plin, efectivo):
     "{texto}"
 
-    Devuelve ÚNICAMENTE un JSON con esta estructura:
+    Extrae la información y responde ÚNICAMENTE con un objeto JSON válido con esta estructura:
     {{
         "amount": 0.0,
         "currency": "PEN",
-        "category": "Alimentación | Transporte | Servicios | Ocio | Salud | Ropa | Otros",
-        "transaction_type": "Gasto | Ingreso",
-        "payment_method": "BCP | Yape | Plin | Efectivo | Tarjeta",
-        "description": "Breve resumen"
+        "category": "Alimentación",
+        "transaction_type": "Gasto",
+        "payment_method": "Yape",
+        "description": "Gaseosa"
     }}
+
+    Reglas:
+    - "amount": número decimal o entero (float).
+    - "category": Alimentación, Transporte, Servicios, Ocio, Salud, Ropa, u Otros.
+    - "transaction_type": "Gasto" o "Ingreso".
+    - "payment_method": BCP, Yape, Plin, Efectivo, o Tarjeta.
+    - "description": descripción breve de la transacción.
     """
+
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config={"response_mime_type": "application/json"}
+        )
         response = model.generate_content(prompt)
-        limpio = response.text.strip().replace("```json", "").replace("```", "").strip()
-        return json.loads(limpio)
+        print(f"Respuesta cruda Gemini: {response.text}")
+        return json.loads(response.text.strip())
     except Exception as e:
-        print(f"Error procesando con Gemini: {e}")
+        print(f"❌ Error al consultar Gemini: {e}")
         return None
+    
