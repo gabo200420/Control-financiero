@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from database import engine
+from sqlalchemy import text
 
 st.set_page_config(
     page_title="Monitor de Finanzas Personales",
@@ -101,20 +102,32 @@ else:
         use_container_width=True,
         hide_index=True
     )
-    # --- Sección para eliminar transacciones ---
+   # --- Sección para eliminar transacciones ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🗑️ Eliminar Registro")
 
-transacciones_df = pd.read_sql("SELECT id, description, amount, created_at FROM transacciones ORDER BY id DESC LIMIT 20", engine)
+try:
+    with engine.connect() as conn:
+        transacciones_df = pd.read_sql(
+            text("SELECT id, description, amount, created_at FROM transacciones ORDER BY id DESC LIMIT 20"), 
+            conn
+        )
 
-if not transacciones_df.empty:
-    opciones = {f"#{row['id']} - {row['description']} (S/. {row['amount']})": row['id'] for _, row in transacciones_df.iterrows()}
-    seleccion = st.sidebar.selectbox("Selecciona la transacción:", list(opciones.keys()))
-    
-    if st.sidebar.button("Eliminar", type="primary"):
-        id_a_borrar = opciones[seleccion]
-        with engine.begin() as conn:
-            conn.execute(text("DELETE FROM transacciones WHERE id = :id"), {"id": id_a_borrar})
-        st.sidebar.success(f"Transacción #{id_a_borrar} eliminada.")
-        st.rerun()
+    if not transacciones_df.empty:
+        opciones = {
+            f"#{int(row['id'])} - {row['description']} (S/. {row['amount']})": int(row['id']) 
+            for _, row in transacciones_df.iterrows()
+        }
+        seleccion = st.sidebar.selectbox("Selecciona la transacción:", list(opciones.keys()))
         
+        if st.sidebar.button("Eliminar", type="primary"):
+            id_a_borrar = int(opciones[seleccion])
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM transacciones WHERE id = :id"), {"id": id_a_borrar})
+            
+            # Limpia la memoria caché para forzar la recarga desde la base de datos
+            st.cache_data.clear()
+            st.sidebar.success(f"Transacción #{id_a_borrar} eliminada.")
+            st.rerun()
+except Exception as e:
+    st.sidebar.error(f"Error al eliminar: {e}")
