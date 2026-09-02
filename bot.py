@@ -1,3 +1,5 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 import asyncio
 from datetime import datetime
@@ -74,10 +76,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.add(nueva)
                 db.commit()
                 db.refresh(nueva)
-                
+# Obtener fecha y hora exacta de Perú
+                fecha_pe = datetime.now(ZoneInfo("America/Lima")).strftime("%d/%m/%Y %I:%M %p")
+
                 icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
                 respuesta = (
                     f"✅ **Transacción Registrada #{nueva.id}**\n\n"
+                    f"📅 **Fecha:** {fecha_pe}\n"
                     f"📌 **Tipo:** {icono} {nueva.transaction_type}\n"
                     f"💰 **Monto:** S/. {nueva.amount:.2f} {nueva.currency}\n"
                     f"🏷️ **Categoría:** {nueva.category}\n"
