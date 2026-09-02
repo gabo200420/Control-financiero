@@ -65,20 +65,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "amount" in analisis and analisis["amount"] > 0:
             db = SessionLocal()
             try:
+                # 1. Calcular hora exacta de Perú (UTC-5)
+                hora_peru = datetime.now(timezone.utc) - timedelta(hours=5)
+                fecha_pe = hora_peru.strftime("%d/%m/%Y %I:%M %p")
+
+                # 2. Guardar en created_at con la hora de Perú
                 nueva = Transaccion(
                     amount=analisis["amount"],
                     currency=analisis.get("currency", "PEN"),
                     category=analisis.get("category", "Otros"),
                     transaction_type=analisis.get("transaction_type", "Gasto"),
                     payment_method=analisis.get("payment_method", "Efectivo"),
-                    description=analisis.get("description", texto_usuario)
+                    description=analisis.get("description", texto_usuario),
+                    created_at=hora_peru  # <-- Corregido a created_at
                 )
                 db.add(nueva)
                 db.commit()
                 db.refresh(nueva)
-# Resta exacta de 5 horas a la hora UTC del servidor
-                hora_peru = datetime.now(timezone.utc) - timedelta(hours=5)
-                fecha_pe = hora_peru.strftime("%d/%m/%Y %I:%M %p")
 
                 icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
                 respuesta = (
