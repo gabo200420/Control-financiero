@@ -76,10 +76,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.add(nueva)
                 db.commit()
                 db.refresh(nueva)
-# Ajustar a horario exacto de Perú (UTC-5)
-                zona_peru = timezone(timedelta(hours=-5))
-                fecha_pe = datetime.now(zona_peru).strftime("%d/%m/%Y %I:%M %p")
-                
+# Resta exacta de 5 horas a la hora UTC del servidor
+                hora_peru = datetime.now(timezone.utc) - timedelta(hours=5)
+                fecha_pe = hora_peru.strftime("%d/%m/%Y %I:%M %p")
+
                 icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
                 respuesta = (
                     f"✅ **Transacción Registrada #{nueva.id}**\n\n"
