@@ -437,7 +437,8 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown("### 📋 Movimientos del Mes")
 
 df_mostrar = df_mes[["id", "fecha", "descripcion", "categoria", "tipo", "medio", "monto", "moneda"]].copy()
-df_mostrar["fecha"] = df_mostrar["fecha"].dt.strftime("%d/%m/%Y %H:%M")
+# Restar 5 horas para convertir de UTC a hora local de Perú
+df_mostrar["fecha"] = (pd.to_datetime(df_mostrar["fecha"]) - pd.Timedelta(hours=5)).dt.strftime("%d/%m/%Y %H:%M")
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
 
 # Sección para Eliminar Transacciones Erróneas
