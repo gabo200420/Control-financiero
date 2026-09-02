@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import os
 import asyncio
@@ -76,9 +76,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.add(nueva)
                 db.commit()
                 db.refresh(nueva)
-# Obtener fecha y hora exacta de Perú
-                fecha_pe = datetime.now(ZoneInfo("America/Lima")).strftime("%d/%m/%Y %I:%M %p")
-
+# Ajustar a horario exacto de Perú (UTC-5)
+                zona_peru = timezone(timedelta(hours=-5))
+                fecha_pe = datetime.now(zona_peru).strftime("%d/%m/%Y %I:%M %p")
+                
                 icono = "🔴" if nueva.transaction_type == "Gasto" else "🟢"
                 respuesta = (
                     f"✅ **Transacción Registrada #{nueva.id}**\n\n"
